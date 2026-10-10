@@ -1,0 +1,138 @@
+################### R script #################
+
+library(fastqcr)
+
+series <- "GSE214493"
+  
+### Directory and program settings ###
+  main.dir <-file.path("/Users","francescocappuccio","NCBI", "RNA-seq data", series)
+  fastq.dir <- file.path(main.dir, "raw_data", "fastq")
+  fastqc.dir <- file.path(main.dir, "reports", "fastqcr")
+  if(!dir.exists(fastqc.dir)){dir.create(fastqc.dir, 
+                                         recursive = TRUE, 
+                                         showWarnings = FALSE)}
+  fastqc.path <- "/opt/homebrew/bin/fastqc"
+  fastq.files <- gsub(".fastq.gz", "", dir(fastq.dir))
+  
+#################################################  
+##### Running FastQC from R                 #####
+#################################################
+  fastqc(
+    fq.dir = shQuote(fastq.dir),
+    qc.dir = shQuote(fastqc.dir),
+    threads = 4,
+    fastqc.path = fastqc.path
+  )
+
+#################################################  
+##### FastQC results for a single sample    #####
+#################################################
+## reading the file of a single sample
+  single.samp <- fastq.files[1]
+  qc <- qc_read(file.path(fastqc.dir,paste0(single.samp,"_fastqc.zip")))  
+## reporting of a single sample
+  qc_plot(qc, "summary")
+  qc_plot(qc, "Basic statistics")
+  qc_plot(qc, "Per base sequence quality")
+  qc_plot(qc, "Per sequence quality scores")
+  qc_plot(qc, "Per base sequence content")
+  qc_plot(qc, "Per sequence GC content")
+  qc_plot(qc, "Per base N content")
+  qc_plot(qc, "Sequence length distribution")
+  qc_plot(qc, "Sequence duplication levels")
+  qc_plot(qc, "Overrepresented sequences")
+  qc_plot(qc, "Adapter content")
+  # qc_plot(qc, "Kmer content")
+
+#################################################  
+##### MultiQC report                        #####
+#################################################
+## aggregating FastQC reports
+  multi.qc <- qc_aggregate(fastqc.dir)
+## QC summary
+  summary(multi.qc)
+## general statistics
+  qc_stats(multi.qc)
+## create a Multi-QC Report
+  qc_report(fastqc.dir, result.file = file.path(fastqc.dir,"multiQC report raw"),
+            experiment = series)
+  
+#################################################  
+##### Improved plots                        #####
+#################################################
+## adapter content
+  library(dplyr)
+  library(tidyr)
+  library(ggplot2)
+  library(stringr)
+  
+  adapter.colors <- c(
+    "Illumina Universal Adapter"    = "#FF0000",
+    "Illumina Small RNA 3' Adapter" = "#0000FF",
+    "Illumina Small RNA 5' Adapter" = "#00C000",
+    "Nextera Transposase Sequence"  = "#333333",
+    "PolyA"                         = "#619CFF",
+    "PolyG"                         = "#F564E3"
+  )
+  adapter.long <- qc$adapter_content %>%
+    pivot_longer(
+      cols = -Position,
+      names_to = "Adapter",
+      values_to = "Percent"
+    ) %>%
+    mutate(
+      Position_num = case_when(
+        str_detect(Position, "-") ~ {
+          lim <- str_split(Position, "-", simplify = TRUE)
+          (as.numeric(lim[, 1]) + as.numeric(lim[, 2])) / 2
+        },
+        TRUE ~ as.numeric(Position)
+      )
+    )
+  p1 <- ggplot(adapter.long, aes(x = Position_num, y = Percent, colour = Adapter)) +
+    geom_line(linewidth = 1.05, na.rm = TRUE) +
+    scale_colour_manual(values = adapter.colors, name = NULL) +
+    scale_x_continuous(
+      breaks = seq(0, max(adapter.long$Position_num, na.rm = TRUE), by = 10),
+      expand = expansion(mult = c(0.01, 0.03))
+    ) +
+    scale_y_continuous(
+      limits = c(0, 100),
+      breaks = seq(0, 100, by = 10),
+      labels = function(x) paste0(x, "%"),
+      expand = c(0, 0)
+    ) +
+    labs(
+      x = "Position in read (bp)",
+      y = "Adapter content"
+    ) +
+    guides(
+      colour = guide_legend(
+        ncol = 1,
+        byrow = TRUE
+      )
+    ) +
+    theme_minimal(base_size = 15) +
+    theme(
+      axis.title = element_text(face = "bold"),
+      legend.position = c(0.98, 0.98),
+      legend.justification = c(1, 1),
+      legend.direction = "vertical",
+      legend.text = element_text(size = 10),
+      legend.key.width = grid::unit(1.3, "cm"),
+      legend.background = element_rect(
+        fill = scales::alpha("white", 0.85),
+        colour = "grey70"
+      ),
+      panel.grid.minor = element_blank(),
+      panel.grid.major = element_line(colour = "grey88"),
+      plot.margin = margin(12, 18, 12, 12)
+    )
+  ggsave(
+    filename = file.path(fastqc.dir, "adapter_content.png"),
+    plot = p1,
+    width = 10,
+    height = 8,
+    dpi = 300,
+    bg = "white"
+  )
