@@ -1,0 +1,38 @@
+### Project settings ###
+series="GSE214493"
+threads=10
+
+### Directory settings ###
+homedir="${HOME}/NCBI/${series}"
+fastqdir="${homedir}/fastq"
+QCdir="${homedir}/QC"
+
+### Check that the FASTQ directory exists ###
+if [[ ! -d "${fastqdir}" ]]; then
+    echo "Error: FASTQ directory not found: ${fastqdir}"
+    echo "Create this directory and place your .fastq.gz files inside it."
+    exit 1
+fi
+
+### Check that FASTQ files exist ###
+shopt -s nullglob
+fastq_files=("${fastqdir}"/*.fastq.gz)
+
+if [[ ${#fastq_files[@]} -eq 0 ]]; then
+    echo "Error: No .fastq.gz files found in ${fastqdir}"
+    exit 1
+fi
+
+### Create QC directory ###
+mkdir -p "${QCdir}"
+
+### Run FastQC ###
+fastqc \
+    --threads "${threads}" \
+    --outdir "${QCdir}" \
+    "${fastq_files[@]}" || exit 1
+
+### Run MultiQC ###
+multiqc \
+    --outdir "${QCdir}" \
+    "${QCdir}"
