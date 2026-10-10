@@ -1,0 +1,103 @@
+#!/bin/bash
+
+### Project settings ###
+series="GSE214493"
+listfile="SRR_Acc_List.txt"
+
+### Sequencing type: "single" or "paired" ###
+read_type="paired"
+
+### Directory settings ###
+homedir="$HOME/NCBI/${series}"
+fastqdir="${homedir}/fastq"
+
+### Find SRA Toolkit ###
+fastqdump="$(command -v fastq-dump)"
+
+if [ -z "$fastqdump" ]; then
+    echo "ERROR: fastq-dump not found."
+    echo "Please install the NCBI SRA Toolkit and add it to PATH."
+    exit 1
+fi
+
+### Create output directory ###
+mkdir -p "${fastqdir}"
+
+### Copy the accession list into the fastq directory ###
+if [ ! -f "${homedir}/${listfile}" ]; then
+    echo "ERROR: Accession list not found: ${homedir}/${listfile}"
+    exit 1
+fi
+
+cp "${homedir}/${listfile}" "${fastqdir}/${listfile}"
+
+### Check read type and define fastq-dump options ###
+case "${read_type}" in
+    single)
+        dump_options=(--gzip)
+        ;;
+    paired)
+        dump_options=(--gzip --split-3)
+        ;;
+    *)
+        echo "ERROR: read_type must be 'single' or 'paired'." >&2
+        exit 1
+        ;;
+esac
+
+### Download FASTQ files ###
+while IFS= read -r srr || [ -n "$srr" ]; do
+    # Remove Windows-style carriage returns if present
+    srr="${srr//$'\r'/}"
+
+    # Skip blank lines
+    [ -z "$srr" ] && continue
+
+    echo "Downloading ${srr}..."
+
+    "$fastqdump" \
+        "${dump_options[@]}" \
+        --outdir "${fastqdir}" \
+        "${srr}"
+
+done < "${fastqdir}/${listfile}"
+
+### Generate and verify MD5 checksums ###
+cd "${fastqdir}" || exit 1
+
+shopt -s nullglob
+fastq_files=( *.fastq.gz )
+
+if [ ${#fastq_files[@]} -eq 0 ]; then
+    echo "ERROR: No .fastq.gz files found."
+    exit 1
+fi
+
+# Generate MD5 checksums using the macOS md5 command
+: > check.md5
+
+for file in "${fastq_files[@]}"; do
+    md5 -r "$file" >> check.md5
+done
+
+# Verify the checksums
+while read -r expected file; do
+    actual="$(md5 -q "$file")"
+
+    if [ "$actual" != "$expected" ]; then
+        echo "CHECKSUM FAILED: $file" >&2
+        exit 1
+    fi
+
+    echo "OK: $file"
+done < check.md5
+
+echo "All downloads and checksum checks completed."
+echo "Output directory: ${fastqdir}"
+
+
+
+
+###################################################################################
+#to run the script after it has been saved with nano into a .sh file
+bash "$HOME/NCBI/GSE214493/download_fastq.sh"
