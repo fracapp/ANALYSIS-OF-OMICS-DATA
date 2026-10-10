@@ -1,0 +1,65 @@
+### Project settings ###
+series="GSE214493"
+read_type="paired"           # "single" or "paired"
+threads=8
+infofile="SRR_list.txt"
+
+### Directory settings ###
+homedir="${HOME}/NCBI/${series}"
+fastqdir="${homedir}/fastq"
+trimdir="${homedir}/fastq_trimmed"
+QCdir="${homedir}/QC_trimmed"
+
+### Program and adapter settings ###
+bbduk="/Documents/bbmap/bbduk.sh"
+adapters="/Documents/bbmap/resources/adapters.fa"
+#polyA=/data01/Programs/bbmap/resources/polyA.fa
+#truseq=/data01/Programs/bbmap/resources/truseq_rna.fa.gz
+
+### Create output directories ###
+mkdir -p "${trimdir}" "${QCdir}"
+cd "${homedir}"
+sed -i 's/\r$//' SRR_list.txt
+
+### Adapter and quality trimming ###
+while read -r run
+do
+    echo "Trimming ${run}..."
+    if [[ "${read_type}" == "single" ]]; then
+        "${bbduk}" \
+            threads="${threads}" \
+            in="${fastqdir}/${run}.fastq.gz" \
+            out="${trimdir}/${run}_trimmed.fastq.gz" \
+            ref="${adapters}" \
+            ktrim=r k=13 mink=5 \
+            qtrim=r trimq=20 \
+            minlen=35
+    elif [[ "${read_type}" == "paired" ]]; then
+        "${bbduk}" \
+            threads="${threads}" \
+            in1="${fastqdir}/${run}_1.fastq.gz" \
+            in2="${fastqdir}/${run}_2.fastq.gz" \
+            out1="${trimdir}/${run}_1_trimmed.fastq.gz" \
+            out2="${trimdir}/${run}_2_trimmed.fastq.gz" \
+            ref="${adapters}" \
+            ktrim=r k=13 mink=5 \
+            qtrim=r trimq=20 \
+            minlen=35 \
+            tbo tpe
+    else
+        echo "ERROR: read_type must be 'single' or 'paired'."
+        exit 1
+    fi
+done < "${infofile}"
+
+### FastQC after trimming ###
+fastqc \
+    --quiet \
+    --threads "${threads}" \
+    --outdir "${QCdir}" \
+    "${trimdir}"/*.fastq.gz
+
+### MultiQC report ###
+multiqc \
+    --outdir "${QCdir}" \
+    "${QCdir}"
